@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="uk"><head><meta charset="utf-8"><title>Зомбі-оборона</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--bg:#1d2417;--panel:#111;--fg:#eee;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;overflow:hidden}
+canvas{display:block;width:100%;height:100%;cursor:crosshair;touch-action:none}
+#ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.75);padding:12px}
+#box{background:var(--panel);border:2px solid #4a6;border-radius:12px;padding:18px;max-width:520px;width:100%;max-height:90%;overflow:auto;text-align:center}
+button{background:#2a7a3a;color:#fff;border:0;border-radius:8px;padding:10px 16px;font-size:16px;cursor:pointer;margin:4px}
+button:disabled{background:#444;color:#888;cursor:default}
+.it{display:flex;justify-content:space-between;align-items:center;text-align:left;border-bottom:1px solid #333;padding:4px 0}
+h2{margin:0 0 8px}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="ov"><div id="box"></div></div>
+<button id="ex" style="display:none;position:fixed;top:calc(8px + env(safe-area-inset-top,0px));right:8px;background:#a33;margin:0" onclick="exitGame()">✕ Меню</button>
+<script>
+const cv=document.getElementById('c'),x=cv.getContext('2d'),ov=document.getElementById('ov'),box=document.getElementById('box');
+let W,H;function rs(){W=cv.width=innerWidth;H=cv.height=innerHeight}rs();addEventListener('resize',rs);
+const WEAPONS=[
+{n:'Автомат',dmg:14,rate:140,spr:.06,pel:1,price:0},
+{n:'Покращений автомат',dmg:22,rate:110,spr:.05,pel:1,price:250},
+{n:'Дробовик',dmg:15,rate:550,spr:.3,pel:6,price:450},
+{n:'Кулемет',dmg:28,rate:60,spr:.09,pel:1,price:900},
+{n:'Плазмова гвинтівка',dmg:50,rate:70,spr:.03,pel:1,price:1500},
+{n:'Мініган',dmg:65,rate:40,spr:.12,pel:1,price:2100},
+{n:'РПГ',dmg:900,rate:3000,spr:0,pel:1,price:4000,splash:100,spd:500}];
+const VESTS=[{n:'Без бронежилета',ar:0,price:0},{n:'Легкий бронежилет',ar:40,price:150},{n:'Середній бронежилет',ar:80,price:350},{n:'Важкий бронежилет',ar:140,price:700},{n:'Залізна броня',ar:200,price:1900}];
+const MAXLV=6;
+
+let st='menu',lv=1,sel=0,P,Z,B,spawned,total,spT,last=0,mouse={x:0,y:0,down:false},fire=0,hurt=0,keys={},earned=0;
+let save={money:0,owned:[1,0,0,0,0],wi:0,vi:0};
+try{const d=JSON.parse(localStorage.getItem('zsave'));if(d&&d.owned)save=d}catch(e){}
+save.ctrl=save.ctrl||(matchMedia('(pointer:coarse)').matches?'mobile':'pc');save.unlocked=save.unlocked||1;
+function sv(){try{localStorage.setItem('zsave',JSON.stringify(save))}catch(e){}}
+let jplan=[],post=0,ptime=0,EX=[],wd=1;
+function wave(){for(let i=0;i<20;i++){const s=i%4;let x,y;if(s==0){x=Math.random()*W;y=-30}else if(s==1){x=W+30;y=Math.random()*H}else if(s==2){x=Math.random()*W;y=H+30}else{x=-30;y=Math.random()*H}Z.push({x,y,hp:300,max:300,sp:100*(.85+Math.random()*.3),r:15,boss:false,cd:0,wind:0,reach:33,dmg:45,a:0,jmp:false,jcd:1,jt:0,jvx:0,jvy:0})}}
+function drawMsg(){if(st!=='play'||post!==1)return;x.save();x.textAlign='center';x.font='bold '+Math.min(72,W/9)+'px system-ui';x.lineWidth=6;x.strokeStyle='#000';x.fillStyle='#e22';x.strokeText('Це ще не все',W/2,H/2-80);x.fillText('Це ще не все',W/2,H/2-80);x.restore()}
+function startLv(n){lv=n;Z=[];B=[];spawned=0;total=lv===MAXLV?1:lv===5?30:lv===7?40:8+lv*6;post=0;EX=[];jplan=[];if(lv===7){for(let i=0;i<40;i++)jplan.push(i<14);jplan.sort(()=>Math.random()-.5)}if(lv===5){for(let i=0;i<30;i++)jplan.push(i<8);jplan.sort(()=>Math.random()-.5)}spT=0;earned=0;
+const v=VESTS[save.vi];P={x:W/2,y:H/2,hp:100,max:100,ar:v.ar};st='play';ov.style.display='none';document.getElementById('ex').style.display='block'}
+function spawn(){const boss=lv===MAXLV;const s=Math.floor(Math.random()*4);let x,y;
+if(s==0){x=Math.random()*W;y=-30}else if(s==1){x=W+30;y=Math.random()*H}else if(s==2){x=Math.random()*W;y=H+30}else{x=-30;y=Math.random()*H}
+const hp=boss?16000:(35+lv*18)*3*(lv===5?.8:1),r=boss?46:15;Z.push({x,y,hp,max:hp,sp:boss?110:(40+lv*9)*1.2*(lv===5?.85:1)*(.85+Math.random()*.3),r,boss,cd:0,wind:0,reach:boss?r+50:r+18,dmg:boss?130:(8+lv*3)*5*(lv===5?.45:1),a:0,jmp:lv===5&&!!jplan[spawned],jcd:1,jt:0,jvx:0,jvy:0});if(lv===7){const q=Z[Z.length-1],ru=jplan[spawned];q.hp=q.max=ru?500:900;q.sp=(ru?300:100)*(.9+Math.random()*.2);q.dmg=ru?78:156;q.run=ru}spawned++}
+const mob=()=>save.ctrl==='mobile';
+let sk={m:null,a:null};
+function setC(c){save.ctrl=c;sk={m:null,a:null};mouse.down=false;sv();menu()}
+cv.addEventListener('pointerdown',e=>{
+if(!mob()){mouse.x=e.clientX;mouse.y=e.clientY;mouse.down=true;return}
+const k=e.clientX<W/2?'m':'a';if(sk[k])return;
+sk[k]={id:e.pointerId,ox:e.clientX,oy:e.clientY,dx:0,dy:0}});
+cv.addEventListener('pointermove',e=>{
+if(!mob()){mouse.x=e.clientX;mouse.y=e.clientY;return}
+for(const k in sk){const s=sk[k];if(s&&s.id===e.pointerId){let dx=e.clientX-s.ox,dy=e.clientY-s.oy;const l=Math.hypot(dx,dy),R=60;if(l>R){dx=dx/l*R;dy=dy/l*R}s.dx=dx/R;s.dy=dy/R}}});
+const up=e=>{if(!mob()){mouse.down=false;return}for(const k in sk)if(sk[k]&&sk[k].id===e.pointerId)sk[k]=null};
+addEventListener('pointerup',up);addEventListener('pointercancel',up);
+function drawSticks(){if(!mob()||st!=='play')return;x.lineWidth=3;
+for(const k of['m','a']){const s=sk[k],cx=s?s.ox:(k==='m'?90:W-90),cy=s?s.oy:H-90;
+x.strokeStyle='rgba(255,255,255,.35)';x.beginPath();x.arc(cx,cy,60,0,7);x.stroke();
+x.fillStyle='rgba(255,255,255,.3)';x.beginPath();x.arc(cx+(s?s.dx*60:0),cy+(s?s.dy*60:0),26,0,7);x.fill()}
+x.fillStyle='rgba(255,255,255,.6)';x.font='12px system-ui';x.textAlign='center';x.fillText('ходьба',90,H-165);x.fillText('приціл / вогонь',W-90,H-165);x.lineWidth=1}
+addEventListener('keydown',e=>{keys[e.code]=1;if(st==='play'&&e.code.startsWith('Arrow'))e.preventDefault()});
+addEventListener('keyup',e=>keys[e.code]=0);
+function shoot(t){const w=WEAPONS[save.wi];if(t<fire)return;fire=t+w.rate;const a=Math.atan2(mouse.y-P.y,mouse.x-P.x);
+for(let i=0;i<w.pel;i++){const b=a+(Math.random()-.5)*w.spr*2;B.push({x:P.x+Math.cos(b)*28,y:P.y+Math.sin(b)*28,vx:Math.cos(b)*(w.spd||700),vy:Math.sin(b)*(w.spd||700),d:w.dmg,l:w.splash?2:1.2,sp:w.splash||0})}}
+function dmgP(d){hurt=.15;if(P.ar>0){const a=Math.min(P.ar,d);P.ar-=a;d-=a}P.hp-=d;if(P.hp<=0){P.hp=0;st='over';sv();menu()}}
+function upd(dt,t){
+let mx=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0),my=(keys.KeyS||keys.ArrowDown?1:0)-(keys.KeyW||keys.ArrowUp?1:0);
+if(mob()){mx=sk.m?sk.m.dx:0;my=sk.m?sk.m.dy:0;if(Math.hypot(mx,my)<.15)mx=my=0;
+if(sk.a&&Math.hypot(sk.a.dx,sk.a.dy)>.15){mouse.x=P.x+sk.a.dx*100;mouse.y=P.y+sk.a.dy*100;mouse.down=true}else mouse.down=false}
+if(mx||my){const l=Math.hypot(mx,my);P.x=Math.min(W-18,Math.max(18,P.x+mx/l*190*dt));P.y=Math.min(H-18,Math.max(18,P.y+my/l*190*dt))}
+if(mouse.down)shoot(t);
+if(post===1){ptime-=dt;if(ptime<=0){post=2;wave()}}
+spT-=dt;if(spawned<total&&spT<=0){spawn();spT=lv===5?.55:lv===7?.7:Math.max(.35,1.4-lv*.18)}
+for(const b of B){b.x+=b.vx*dt;b.y+=b.vy*dt;b.l-=dt}
+for(const z of Z){const dx=P.x-z.x,dy=P.y-z.y,d=Math.hypot(dx,dy);z.a=Math.atan2(dy,dx);
+z.cd-=dt;z.jcd-=dt;
+if(z.jt>0){z.jt-=dt;z.x+=z.jvx*dt;z.y+=z.jvy*dt;if(z.jt<=0){z.jcd=3;if(Math.hypot(P.x-z.x,P.y-z.y)<z.r+30)dmgP(P.max/4)}}
+else if(z.jmp&&z.jcd<=0&&d<=200&&d>60){z.jt=.45;z.jvx=dx/.45;z.jvy=dy/.45}
+else if(z.boss){if(z.wind>0){z.wind-=dt;if(z.wind<=0){if(d<z.reach+30)dmgP(z.dmg);z.cd=1}}
+else if(z.cd<=0&&d<=z.reach+40)z.wind=.4;else if(d>z.reach){z.x+=dx/d*z.sp*dt;z.y+=dy/d*z.sp*dt}}
+else if(d>z.r+18){z.x+=dx/d*z.sp*dt;z.y+=dy/d*z.sp*dt}else if(z.cd<=0){dmgP(z.dmg);z.cd=.8}
+for(const b of B)if(b.l>0&&Math.hypot(b.x-z.x,b.y-z.y)<z.r+3){if(b.sp){for(const q of Z)if(Math.hypot(q.x-b.x,q.y-b.y)<b.sp+q.r)q.hp-=b.d;EX.push({x:b.x,y:b.y,t:.3,r:b.sp})}else z.hp-=b.d;b.l=0}}
+B=B.filter(b=>b.l>0);EX.forEach(e=>e.t-=dt);EX=EX.filter(e=>e.t>0);
+for(const z of Z)if(z.hp<=0){if(z.boss&&post===0){post=1;ptime=4}const m=z.boss?1000:8+lv*2;save.money+=m;earned+=m}
+Z=Z.filter(z=>z.hp>0);for(const b of Z)if(b.boss&&!b.half&&b.hp<=b.max/2){b.half=true;for(let i=0;i<4;i++){const an=i*Math.PI/2+.8;Z.push({x:b.x+Math.cos(an)*90,y:b.y+Math.sin(an)*90,hp:250,max:250,sp:95,r:15,boss:false,cd:0,wind:0,reach:33,dmg:50,a:0,jmp:true,jcd:.5+i*.4,jt:0,jvx:0,jvy:0})}}hurt=Math.max(0,hurt-dt);
+if(st==='play'&&spawned>=total&&!Z.length&&(lv!==MAXLV||post===2)){const b=50*lv;save.money+=b;earned+=b;if(lv>=save.unlocked&&lv<MAXLV)save.unlocked=lv+1;if(lv===MAXLV)save.w2=1;st='win';sv();menu()}}
+function bar(bx,by,w,v,m,c){x.fillStyle='#400';x.fillRect(bx,by,w,5);x.fillStyle=c;x.fillRect(bx,by,w*Math.max(0,v/m),5)}
+function draw(){x.fillStyle='#2b3a20';x.fillRect(0,0,W,H);x.strokeStyle='rgba(0,0,0,.12)';
+for(let i=0;i<W;i+=50){x.beginPath();x.moveTo(i,0);x.lineTo(i,H);x.stroke()}for(let j=0;j<H;j+=50){x.beginPath();x.moveTo(0,j);x.lineTo(W,j);x.stroke()}
+if(!P||st==='menu'||st==='levels'||st==='shop')return;
+for(const z of Z){const jl=z.jt>0?Math.sin(Math.PI*(1-z.jt/.45))*30:0;if(jl){x.fillStyle='rgba(0,0,0,.3)';x.beginPath();x.arc(z.x,z.y,z.r,0,7);x.fill()}x.fillStyle=z.boss?'#5b7a2a':z.jmp?'#a4c':z.run?'#e93':'#4a8a3a';x.beginPath();x.arc(z.x,z.y-jl,z.r*(1+jl/100),0,7);x.fill();
+x.fillStyle='#d22';for(const s of[-1,1]){x.beginPath();x.arc(z.x+Math.cos(z.a+s*.5)*z.r*.6,z.y+Math.sin(z.a+s*.5)*z.r*.6,z.r*.17,0,7);x.fill()}
+if(z.boss){x.save();x.translate(z.x,z.y);x.rotate(z.a+(z.wind>0?(1-z.wind/.4)*2.4-1.2:0));x.fillStyle='#ccd';x.fillRect(z.r-4,-3,58,6);x.fillStyle='#531';x.fillRect(z.r-14,-4,14,8);x.restore()}
+bar(z.x-z.r,z.y-z.r-9,z.r*2,z.hp,z.max,'#e33')}
+x.fillStyle='#ff0';for(const b of B){if(b.sp){x.fillStyle='#f80';x.beginPath();x.arc(b.x,b.y,6,0,7);x.fill();x.fillStyle='#ff0'}else x.fillRect(b.x-2,b.y-2,4,4)}
+for(const e of EX){x.fillStyle=`rgba(255,140,0,${e.t/.3*.6})`;x.beginPath();x.arc(e.x,e.y,e.r*(1-e.t),0,7);x.fill()}
+const a=Math.atan2(mouse.y-P.y,mouse.x-P.x);x.save();x.translate(P.x,P.y);x.rotate(a);
+x.fillStyle='#333';x.fillRect(8,-4,26,8);x.fillStyle=hurt>0?'#f55':'#3a6ea5';x.beginPath();x.arc(0,0,17,0,7);x.fill();
+x.fillStyle='#e8b98a';x.beginPath();x.arc(2,0,8,0,7);x.fill();x.restore();
+bar(P.x-25,P.y+24,50,P.hp,P.max,'#3d3');if(P.ar>0)bar(P.x-25,P.y+31,50,P.ar,VESTS[save.vi].ar,'#39f');
+x.fillStyle='#fff';x.font='16px system-ui';x.textAlign='left';
+x.fillText(`${lv>6?'Світ 2 · Рівень 1':'Рівень '+lv+'/'+MAXLV}   Зомбі: ${Z.length+total-spawned}   Зароблено: $${earned}   Зброя: ${WEAPONS[save.wi].n}`,12,24);
+x.fillText(`HP: ${Math.ceil(P.hp)}/${P.max}   Броня: ${Math.ceil(P.ar)}${mob()?'':'   (WASD / стрілки — ходити, мишка — стріляти)'}`,12,46)}
+function loop(t){const dt=Math.min(.05,(t-last)/1000);last=t;if(st==='play')upd(dt,t);draw();drawSticks();drawMsg();requestAnimationFrame(loop)}
+function go(s){st=s;menu()}
+function exitGame(){mouse.down=false;sk={m:null,a:null};st='menu';sv();menu()}
+function menu(){ov.style.display='flex';document.getElementById('ex').style.display='none';let h='';
+if(st==='menu')h=`<h2>🧟 Зомбі-оборона</h2><p>Гроші: <b>$${save.money}</b></p><button onclick="sel=0;go('levels')">▶ Грати</button><br><button onclick="go('shop')">🛒 Магазин</button><p style="margin:14px 0 4px">Управління:</p><button style="${save.ctrl==='pc'?'outline:3px solid #ff0':'background:#555'}" onclick="setC('pc')">🖥 ПК</button><button style="${save.ctrl==='mobile'?'outline:3px solid #ff0':'background:#555'}" onclick="setC('mobile')">📱 Телефон</button><p><small>${save.ctrl==='pc'?'WASD / стрілки — ходити, мишка — цілитись і стріляти':'Лівий джойстик — ходити, правий — цілитись і стріляти'}</small></p>`;
+else if(st==='levels'){h=`<div style="display:flex;align-items:center;justify-content:center;gap:10px"><button ${wd===1?'disabled':''} onclick="wd=1;sel=0;menu()">◀</button><h2 style="margin:0">Світ ${wd}</h2><button ${wd===2?'disabled':''} onclick="wd=2;sel=0;menu()">▶</button></div><p>Вибери рівень</p><div>`;if(wd===2){const lk=!save.w2;h+=`<button ${lk?'disabled':''} style="width:64px;height:64px;font-size:24px;${sel===7?'outline:3px solid #ff0':''}" onclick="sel=7;menu()">${lk?'🔒':1}</button>`}else for(let i=1;i<=MAXLV;i++)h+=`<button ${i>save.unlocked?'disabled':''} style="width:64px;height:64px;font-size:24px;${sel===i?'outline:3px solid #ff0':''}" onclick="sel=${i};menu()">${i>save.unlocked?'🔒':i}</button>`;
+h+=`</div><p>${sel===7?'Світ 2, рівень 1: 40 зомбі, нові бігуни 🟠, усі зомбі в 3 рази сильніші':sel?(sel===MAXLV?'Рівень 6: БОС — величезний зомбі з мачете (на половині HP кличе 4 стрибунів)':`Рівень ${sel}: ${sel===5?30:8+sel*6} зомбі`+(sel===5?' (з них 8 стрибунів 🟣)':'')):'Проходь рівні по черзі. Натисни на рівень'}</p>`+(sel?`<button onclick="startLv(sel)">▶ Грати</button><br>`:'')+`<button onclick="go('menu')" style="background:#555">← Назад</button>`}
+else if(st==='shop')h=shopHtml();
+else if(st==='over')h=`<h2>💀 Ти загинув</h2><p>Зароблено: $${earned}</p><button onclick="startLv(lv)">Ще раз</button><button onclick="go('menu')" style="background:#555">Меню</button>`;
+else if(st==='win')h=`<h2>🏆 ${lv>6?'Світ 2, рівень 1':'Рівень '+lv} пройдено!</h2><p>Зароблено: $${earned}</p>`+(lv<MAXLV?`<button onclick="startLv(lv+1)">Наступний рівень ▶</button>`:`<p>${lv>6?'Поки що це весь 2 світ!':'Ти переміг боса і пройшов усі 6 рівнів!'}</p>`)+`<button onclick="go('shop')">🛒 Магазин</button><button onclick="go('menu')" style="background:#555">Меню</button>`;
+box.innerHTML=h}
+function shopHtml(){const o=save.owned;let h=`<h2>🛒 Магазин</h2><p>Гроші: <b>$${save.money}</b></p><b>Зброя</b>`;
+WEAPONS.forEach((w,i)=>{const eq=save.wi===i;h+=`<div class="it"><span>${w.n}<br><small>шкода ${w.dmg}${w.pel>1?'×'+w.pel:''}, ${Math.round(10000/w.rate)/10} пострілів/с${w.splash?', вибух 2 клітини':''}</small></span>`+
+(o[i]?`<button ${eq?'disabled':''} onclick="eqp(${i})">${eq?'Обрано':'Обрати'}</button>`:`<button ${save.money<w.price?'disabled':''} onclick="buyW(${i})">$${w.price}</button>`)+`</div>`});
+h+=`<br><b>Бронежилети</b>`;VESTS.forEach((v,i)=>{const eq=save.vi===i;h+=`<div class="it"><span>${v.n}<br><small>захист ${v.ar}</small></span>`+
+(i<=save.vi?`<button ${eq?'disabled':''} onclick="save.vi=${i};sv();menu()">${eq?'Одягнено':'Одягнути'}</button>`:`<button ${save.money<v.price?'disabled':''} onclick="buyV(${i})">$${v.price}</button>`)+`</div>`});
+return h+`<button onclick="go('menu')" style="background:#555">← Назад</button>`}
+function buyW(i){save.money-=WEAPONS[i].price;save.owned[i]=1;save.wi=i;sv();menu()}
+function eqp(i){save.wi=i;sv();menu()}
+function buyV(i){save.money-=VESTS[i].price;save.vi=i;sv();menu()}
+menu();requestAnimationFrame(loop);
+</script></body></html>
